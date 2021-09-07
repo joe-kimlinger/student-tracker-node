@@ -196,7 +196,7 @@ function createStudentObject(student, ipSettings) {
 
     // Set status message based on threshold of 75%
     statusMessage = statusMessages['well']
-    if (student['totalPercentage']){
+    if (student['totalPercentage'] < '75'){
         statusMessage = statusMessages['poor']
     }
     templateText = templateText.replace(/{{STATUS_MSG}}/g, statusMessage)
