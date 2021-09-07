@@ -1,0 +1,20 @@
+{
+  "name": "student-tracker-node",
+  "version": "1.0.0",
+  "description": "Node program to track student progress from csv document",
+  "main": "index.js",
+  "dependencies": {
+    "csv-parser": "^3.0.0",
+    "googleapis": "^39.2.0",
+    "nodemailer": "^6.6.3"
+  },
+  "devDependencies": {},
+  "repository": {
+    "url": "https://github.com/joe-kimlinger/student-tracker-node"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Joe Kimlinger",
+  "license": "ISC"
+}
