@@ -90,7 +90,6 @@ function sendEmails(auth) {
 
             students = parseStudentFile(students)
 
-
             fs.readFile('email-template.html', 'utf8' , (err, data) => {
                 if (err) {
                     console.error(err)
@@ -140,14 +139,18 @@ function createStudentObject(student, ipSettings) {
     newStudent['attendance'] = student['Attendance']
     newStudent['email'] = student['Email']
 
+    totalPercentage = 0
     ipSettings.forEach((ip) => {
         ipScore = student[ip['rawName']]
         ipObject = {}
         ipObject['name'] = ip['name']
         ipObject['score'] = ipScore
-        ipObject['percentage'] = Math.round(ipScore / ip['totalPoints'] * 100)
+        percentage = Math.round(ipScore / ip['totalPoints'] * 100)
+        ipObject['percentage'] = percentage
+        totalPercentage += percentage
         newStudent[ip['rawName']] = ipObject
     });
+    newStudent['totalPercentage'] = totalPercentage / ipSettings.length
 
 
     // Create a table in html using all of the values from the IP scores
@@ -176,14 +179,41 @@ function createStudentObject(student, ipSettings) {
  */
  function createEmailFromTemplate(student, templateText) {
 
+    statusMessages = {
+        'well': "Keep up the good work!  You have been doing well and we'd like to see you continue on this track in order to be successful in this course.",
+        'poor': "Your IP scores are currently not where we'd like them to be moving into the next module.  Don't hesitate to ask for help; let's work together on improving those scores!"
+    }
+    attendanceMessages = {
+        'perfect': "Amazing, perfect attendance!  Your dedication does not go unnoticed, keep it up!!!",
+        'well': "Your dedication does not go unnoticed!  Attendance up plays a huge part in your success, so keep showing up!",
+        'poor': "Your attendance is low.  Make sure you're present to get the information you need to succeed!"
+    }
     options = {year: 'numeric', month: 'long', day: 'numeric' };
     date = (new Date()).toLocaleDateString("en-US")
     templateText = templateText.replace(/{{DATE}}/g, date)
     templateText = templateText.replace(/{{STUDENT_FIRST_NAME}}/g, student['firstName'])
     templateText = templateText.replace(/{{STUDENT_LAST_NAME}}/g, student['lastName'])
+
+    // Set status message based on threshold of 75%
+    statusMessage = statusMessages['well']
+    if (student['totalPercentage']){
+        statusMessage = statusMessages['poor']
+    }
+    templateText = templateText.replace(/{{STATUS_MSG}}/g, statusMessage)
+
+    templateText = templateText.replace(/{{TOTAL_PERCENTAGE}}/g, student['totalPercentage'])
+
     templateText = templateText.replace(/{{IP_TABLE}}/g, student['ipTable'])
     templateText = templateText.replace(/{{ATTENDANCE}}/g, student['attendance'])
-    templateText = templateText.replace(/{{ATTENDANCE_MSG}}/g, 'Keep up the great work!')
+
+    // Set attendance message based on threshold of 95%
+    attendanceMessage = attendanceMessages['well']
+    if (student['attendance'] == '100'){
+        attendanceMessage = attendanceMessages['perfect']
+    } else if (student['attendance'] <= '95') {
+        attendanceMessage = attendanceMessages['poor']
+    }
+    templateText = templateText.replace(/{{ATTENDANCE_MSG}}/g, attendanceMessage)
 
     student['emailText'] = templateText
 
@@ -219,6 +249,5 @@ function sendEmail(student, auth){
             console.log("An error occurred sending the email to " + student['firstName'] + " " + student['lastName'])
             console.log(err['message'])
         }
-        console.log(response)
     });
 }
