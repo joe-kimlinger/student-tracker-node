@@ -11,34 +11,38 @@ const SCOPES = ['https://mail.google.com/'];
 // created automatically when the authorization flow completes for the first
 // time.
 const TOKEN_PATH = 'token.json';
-const STUDENT_FILENAME = 'test.csv'
+const STUDENT_FILENAME = 'Work Assessment Final List Template - Sheet1.csv'
 
 // Load client secrets from a local file.
 fs.readFile('credentials.json', (err, content) => {
 	if (err) return console.log('Error loading client secret file:', err);
-	// Authorize a client with credentials, then call the Gmail API.
-	Promise.all([
-        authorize(JSON.parse(content)),
-        readStudentFile(STUDENT_FILENAME),
-        setupDatabaseConnection()
-    ]).then((results) => {
-        auth = results[0]
-        students = results[1]
-        dbConn = results[2]
-
+	// Autorize using Gmail, parse the student data file, and setup the database connection
+    authorize(JSON.parse(content)).then((auth) => {
         Promise.all([
-            checkEmailLimits(dbConn, students),
-            setupNodeMailerConnection(auth)
-        ]).then((res) => {
-            console.log("Attempting to send " + students.length + " emails.  " + res[0] + " emails sent so far today.")
-            sendEmails(transporter, students, dbConn)
-        }, err => console.error(err));
+            readStudentFile(STUDENT_FILENAME),
+            setupDatabaseConnection()
+        ]).then((results) => {
+            students = results[0]
+            dbConn = results[1]
 
-    }, err => console.error(err));
+            // Check to make sure that sending email to current students does not exceed daily email usage limit and
+            // setup NodeMailer connection
+            Promise.all([
+                checkEmailLimits(dbConn, students),
+                setupNodeMailerConnection(auth)
+            ]).then((res) => {
+                console.log("Attempting to send " + students.length + " emails.  " + res[0] + " emails sent so far today.")
+                sendEmails(transporter, students, dbConn)
+
+            }).catch((err) => console.log(err));
+
+        }).catch((err) => console.log(err));
+    }).catch((err) => console.log(err));
 });
 
 /**
  * Create an OAuth2 client with the given credentials
+ * 
  * @param {Object} credentials The authorization client credentials.
  */
 function authorize(credentials) {
@@ -49,7 +53,7 @@ function authorize(credentials) {
 	// Check if we have previously stored a token.
 	return new Promise((resolve, reject) => {
         fs.readFile(TOKEN_PATH, (err, token) => {
-            if (err) getNewToken(oAuth2Client).then((token) => resolve(token), reject(err));
+            if (err) return getNewToken(oAuth2Client).then((token) => resolve(token));
             oAuth2Client.setCredentials(JSON.parse(token));
             return resolve(oAuth2Client);
         });
@@ -57,8 +61,8 @@ function authorize(credentials) {
 }
 
 /**
- * Get and store new token after prompting for user authorization, 
- * return a promise with the authorized OAuth2 client.
+ * Get and store new token after prompting for user authorization, return a promise with the authorized OAuth2 client.
+ * 
  * @param {google.auth.OAuth2} oAuth2Client The OAuth2 client to get token for.
  */
 function getNewToken(oAuth2Client) {
@@ -75,7 +79,7 @@ function getNewToken(oAuth2Client) {
         rl.question('Enter the code from that page here: ', (code) => {
             rl.close();
             oAuth2Client.getToken(code, (err, token) => {
-                if (err) return reject('Error retrieving access token');
+                if (err) return reject('Error: Error retrieving access token');
                 oAuth2Client.setCredentials(token);
                 // Store the token to disk for later program executions
                 fs.writeFile(TOKEN_PATH, JSON.stringify(token), (err) => {
@@ -99,17 +103,21 @@ function readStudentFile(filename) {
     
     return new Promise((resolve, reject) => {
         fs.createReadStream(filename)
+            .on('error', () => {
+                return reject("Error: There was an error reading the student data file.  Is the file in the same directory and the STUDENT_FILENAME variable updated?")
+            })
             .pipe(csv())
             .on('data', (row) => {
+                // Move each student onto an array to be processed by the cleanStudentData function
                 students.push(row)
             })
             .on('end', () => {
                 if (!students.length){
-                    return reject("No students found in csv.");
+                    return reject("Error: No students found in csv.");
                 }
                 console.log('CSV file successfully processed.');
                 
-                return resolve(parseStudentFile(students))
+                return resolve(cleanStudentData(students))
             })
     });
 }
@@ -117,11 +125,15 @@ function readStudentFile(filename) {
 
 /**
  * Parse and clean an array that comes directly from the student csv
+ * 
  * @param {Array} students data read in from csv.
 */
-function parseStudentFile(students) {
+function cleanStudentData(students) {
+    // Find all the columns the contain IP in the label as these likely represent the IP scores
     ipCols = Object.keys(students[0]).filter((key) => key.trim().match(/^IP\d.*/))
     ipSettings = []
+
+    // Parse out the total points for the IP, which exists in the column header
     ipCols.forEach((col) => {
         x = col.match(/^\s*(IP\d).*\/(\d{2})/)
         setting = {}
@@ -138,8 +150,8 @@ function parseStudentFile(students) {
 
 
 /**
- * Create a new student object with the same information as the raw csv, 
- * but transformed and cleaned
+ * Create a new student object with the same information as the raw csv, but transformed and cleaned
+ * 
  * @param {Object} student Object properties match the csv column names.
  * @param {Array} ipSettings Each element contains info about an IP
  */
@@ -152,6 +164,7 @@ function createStudentObject(student, ipSettings) {
     newStudent['attendance'] = student['Attendance']
     newStudent['email'] = student['Email']
 
+    // Each ip column for the current student is transformed into a new object which contains info about that student's performance in the IP
     totalPercentage = 0
     ipSettings.forEach((ip) => {
         ipScore = student[ip['rawName']]
@@ -166,7 +179,7 @@ function createStudentObject(student, ipSettings) {
     newStudent['totalPercentage'] = totalPercentage / ipSettings.length
 
 
-    // Create a table in html using all of the values from the IP scores
+    // Create a table in html using all values from the IP objects created above
     ipTable = '<table border="1"><tr><th>IP</th><th>Score</th><th>Percentage</th></tr>'
     
     ipSettings.forEach((ip) => {
@@ -193,10 +206,11 @@ function setupDatabaseConnection() {
         db = new sqlite3.Database('./db/email-tracker.db', (err) => {
             if (err) {
                 reject(err.message);
+            } else {
+                console.log('Connected to the email tracker database.');
+                resolve(db);    
             }
-            console.log('Connected to the email tracker database.');
         });
-        resolve(db)
     });
 }
 
@@ -208,6 +222,7 @@ function setupDatabaseConnection() {
  */
 function setupNodeMailerConnection(auth) {	
     return new Promise((resolve, reject) => {
+        // Get email for the current logged in user in order to initialize NodeMailer connection
         getUserEmail(auth).then((email) => {
             transporter = nodemailer.createTransport({
                 host: 'smtp.gmail.com',
@@ -224,6 +239,7 @@ function setupNodeMailerConnection(auth) {
                 }
             });
             return resolve(transporter);
+
         }, err => reject(err));
     });
 }
@@ -245,7 +261,7 @@ function getUserEmail(auth) {
             if ('data' in response && 'emailAddress' in response['data']){
                 return resolve(response['data']['emailAddress'])
             } else {
-                return reject("Error getting user email address")
+                return reject("Error: Error getting user email address")
             }
         });
     })
@@ -260,6 +276,7 @@ function getUserEmail(auth) {
  */
 function checkEmailLimits(dbConn, students){
 
+    // A log for the number of emails sent each day is contained in the EmailCountLog table w/ schema (EmailCount int, date text)
     sql = `SELECT EmailCount
             FROM EmailCountLog
             WHERE Date  = ?`;
@@ -268,17 +285,22 @@ function checkEmailLimits(dbConn, students){
     // Based on limit of 500 messages per day from google https://nodemailer.com/usage/using-gmail/
     dailyLimit = 500
 
-    // first row only
+    if (students.length > dailyLimit)
+        return Promise.reject("Error: trying to send more emails (" + students.length + ") than the daily limit (" + dailyLimit + ").")
+
     return new Promise((resolve, reject) => {
         dbConn.get(sql, [date], (err, row) => {
             if (err) {
-                if (err.message == 'SQLITE_ERROR: no such table: EmailCountLog'){
+                // If table doesn't exist, which occurs on the first run of the script, create it
+                if (err.message.trim() == 'SQLITE_ERROR: no such table: EmailCountLog'){
                     dbConn.run('CREATE TABLE EmailCountLog(EmailCount integer, date text)');
+                    return resolve(0)
                 } else {
                     return reject(err.message);
                 }
             }
             if (row){
+                // If there is a record for today, there must have been emails sent today, so check that sending students.length more doens't exceed the limit
                 if (row.EmailCount + students.length > dailyLimit){
                     errorMsg = "Error: Trying to send emails to " + students.length + " students "
                     errorMsg += "would exceed daily limit of " + dailyLimit
@@ -310,8 +332,10 @@ function sendEmails(transporter, students, dbConn) {
             return
         }
 
+        // Replace the email template text with values from the student objects
         students.map(s => createEmailFromTemplate(s, data))
 
+        // Send an email for each student and mark when it's been delivered
         totalEmails = students.length
         sentEmails = 0
         receivedEmails = 0
@@ -325,17 +349,23 @@ function sendEmails(transporter, students, dbConn) {
                 } else {
                     receivedEmails++;
                 }
+            }, (err) => {
+                errEmails++;
+                console.log("\nError: Error sending email to " + s['email'], err.message);
             })
             sentEmails++;
         });
         
+        // Every .5 seconds, write an update to the console indicating how many emails have been sent/delivered
         consoleWriter = setInterval(() => {
             process.stdout.cursorTo(0);
             msg = "Emails sent: " + sentEmails + "/" + totalEmails + "\t"
             msg += "Emails received: " + receivedEmails + "/" + sentEmails + "\t"
             msg += "Emails not received: " + errEmails + "/" + sentEmails + "\t"
             process.stdout.write(msg);
-            if (receivedEmails == totalEmails){
+
+            // If all emails have been delivered (or errored out), stop writing the status
+            if (receivedEmails + errEmails == totalEmails){
                 clearInterval(consoleWriter)
                 console.log("\nDone sending emails.")
                 saveEmailCountToDb(totalEmails, dbConn)
@@ -346,13 +376,14 @@ function sendEmails(transporter, students, dbConn) {
 
 
 /**
- * Create an email using the template and the info contained in the 
- * student object.
+ * Create an email using the template and the info contained in the student object.
+ * 
  * @param {Object} student contains data for a single student.
  * @param {String} templateText an html template.
  */
  function createEmailFromTemplate(student, templateText) {
 
+    // General status messages to indicate the performance of the student
     statusMessages = {
         'well': "Keep up the good work!  You have been doing well and we'd like to see you continue on this track in order to be successful in this course.",
         'poor': "Your IP scores are currently not where we'd like them to be moving into the next module.  Don't hesitate to ask for help; let's work together on improving those scores!"
@@ -366,7 +397,8 @@ function sendEmails(transporter, students, dbConn) {
     templateText = templateText.replace(/{{STUDENT_FIRST_NAME}}/g, student['firstName'])
     templateText = templateText.replace(/{{STUDENT_LAST_NAME}}/g, student['lastName'])
 
-    // Set status message based on threshold of 75%
+    // Based on analysis of spreadsheet, I determined there was a threshold at 75% that determined if students are doing well (recommended) vs. poorly (not recommended)
+    // Here, I set the status message based on this threshold of 75%
     statusMessage = statusMessages['well']
     if (student['totalPercentage'] < '75'){
         statusMessage = statusMessages['poor']
@@ -378,7 +410,7 @@ function sendEmails(transporter, students, dbConn) {
     templateText = templateText.replace(/{{IP_TABLE}}/g, student['ipTable'])
     templateText = templateText.replace(/{{ATTENDANCE}}/g, student['attendance'])
 
-    // Set attendance message based on threshold of 95%
+    // Set attendance message based on threshold of 95%, which I determinted to be a marker of poor attendance 
     attendanceMessage = attendanceMessages['well']
     if (student['attendance'] == '100'){
         attendanceMessage = attendanceMessages['perfect']
@@ -392,12 +424,12 @@ function sendEmails(transporter, students, dbConn) {
 
 /**
  * Send an email using the gmail API
+ * 
  * @param {Object} student contains data for a single student.
  * @param {nodemailer.Transporter<T>} auth An authorized OAuth2 client.
  */
 function sendEmail(student, transporter){
 
-    messageId = new Date() + student['firstName'] + "_" + student['lastName']
     emailSubject = (new Date()).toLocaleDateString("en-US") + " Status report for " + student['firstName'] + " " + student['lastName']
     return transporter.sendMail({
         to: student['email'],
@@ -414,6 +446,7 @@ function sendEmail(student, transporter){
 
 /**
  * Update the daily count to reflect the number of emails sent
+ * 
  * @param {number} numEmails Number of emails sent in this run of the program.
  * @param {sqlite3.Database} dbConn A sqlite database connection.
  */
@@ -427,6 +460,7 @@ function saveEmailCountToDb(numEmails, dbConn){
         if (err){
             return console.log("Error updating database with new daily count", err.message)
         }
+        // If the update was not performed, likely the row for today doesn't exist yet, so perform an insert instead
         if (this.changes < 1){
             sql = `Insert into EmailCountLog
                    (EmailCount, Date) values (?, ?)`
