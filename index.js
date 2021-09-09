@@ -203,7 +203,7 @@ function createStudentObject(student, ipSettings) {
  */
 function setupDatabaseConnection() {	
     return new Promise((resolve, reject) => {
-        db = new sqlite3.Database('./db/email-tracker.db', (err) => {
+        db = new sqlite3.Database('./email-tracker.db', (err) => {
             if (err) {
                 reject(err.message);
             } else {

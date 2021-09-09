@@ -12,3 +12,4 @@ Becuase the app is intended to be run from the command line by a single user, th
 `node .`
 
 4. If this is your first time running the program in this directory, you'll be prompted to follow a link to sign in via a browser where you'll sign in, receive a code, then paste the code back into the terminal
+    Note: you might get a 403 error on the sign in page that indicates you haven't been added to the list of test users.  Contact Joe at jrk.123.jk@gmail.com to be added to the list of test users.  The only way to avoid manually adding test users is to submit the app through the Google [verification process](https://support.google.com/cloud/answer/9110914).
