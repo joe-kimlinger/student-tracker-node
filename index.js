@@ -397,7 +397,7 @@ function sendEmails(transporter, students, dbConn) {
     templateText = templateText.replace(/{{STUDENT_FIRST_NAME}}/g, student['firstName'])
     templateText = templateText.replace(/{{STUDENT_LAST_NAME}}/g, student['lastName'])
 
-    // Based on analysis of spreadsheet, I determined there was a threshold at 75% that determined if students are doing well (recommended) vs. poorly (not recommended)
+    // Based on analysis of the spreadsheet, I determined there was a threshold at 75% that determined if students are doing well (recommended) vs. poorly (not recommended)
     // Here, I set the status message based on this threshold of 75%
     statusMessage = statusMessages['well']
     if (student['totalPercentage'] < '75'){
@@ -423,7 +423,7 @@ function sendEmails(transporter, students, dbConn) {
 }
 
 /**
- * Send an email using the gmail API
+ * Send an email using nodemailer transporter
  * 
  * @param {Object} student contains data for a single student.
  * @param {nodemailer.Transporter<T>} auth An authorized OAuth2 client.
